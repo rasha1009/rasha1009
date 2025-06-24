@@ -1,0 +1,155 @@
+---
+title: 'NYPD Shooting Incident Data: Cleaning and Summary'
+author: "Rasha Ahmed"
+date: "2025-06-24"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+reading in the data from this link below
+https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD
+
+```{r setup, include=FALSE}
+# Load necessary libraries and set global chunk options
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(tidyverse)   # For data wrangling and visualization
+library(lubridate)   # For handling date/time formats
+library(hms)         # For parsing time
+```
+
+
+```{r}
+# Load the data directly from the NYC Open Data URL (updated quarterly)
+url <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+
+# Read the CSV into R
+shootings_raw <- read_csv(url)
+
+# Preview the structure of the raw data
+glimpse(shootings_raw)
+```
+
+```{r}
+# Step 1: Clean column names (lowercase and remove spaces)
+shootings_clean <- shootings_raw %>%
+  rename_with(~ str_replace_all(., "\\s+", "_")) %>%
+  rename_with(~ str_to_lower(.))
+
+# Step 2: Convert appropriate columns to correct types
+# Dates (use correct format as in the actual data)
+# Times (hms() parses HH:MM:SS format)
+# Factors for categorical fields
+
+shootings_clean <- shootings_clean %>%
+  mutate(
+    occur_date = mdy(occur_date),                      # Convert date
+    occur_time = parse_time(as.character(occur_time)), # Convert time safely
+    boro = as.factor(boro),
+    location_desc = as.factor(location_desc),
+    perp_sex = as.factor(perp_sex),
+    perp_race = as.factor(perp_race),
+    vic_sex = as.factor(vic_sex),
+    vic_race = as.factor(vic_race)
+  )
+
+# Step 3: Drop columns not needed for analysis
+# Adjust the columns based on your analysis goals
+
+shootings_clean <- shootings_clean %>%
+  select(
+    occur_date, occur_time, boro, precinct, location_desc,
+    perp_sex, perp_race, vic_sex, vic_race,
+    latitude, longitude
+  )
+```
+
+```{r}
+# Summarize number of missing values per column
+missing_summary <- shootings_clean %>%
+  summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "missing_count") %>%
+  arrange(desc(missing_count))
+
+# Display missing data summary
+missing_summary
+```
+
+```{r}
+# Plan:
+# - Drop rows where key analysis variables are missing: boro, occur_date
+# - Retain rows with missing perp info (often not available for open cases)
+
+shootings_final <- shootings_clean %>%
+  drop_na(occur_date, boro)
+
+# Recheck summary to confirm data integrity
+summary(shootings_final)
+```
+
+This breakdown shows racial disparities in who is affected 
+by shootings across different boroughs. 
+Certain groups appear to be disproportionately affected depending on location. 
+This raises questions about underlying systemic
+or community-level factors contributing to violence.
+
+```{r plot-location-type, message=FALSE, warning=FALSE}
+# Count the number of shootings by location type
+shootings_final %>%
+  filter(!is.na(location_desc)) %>%
+  count(location_desc, sort = TRUE) %>%
+  slice_max(n, n = 10) %>%  # Show top 10 most common locations
+  ggplot(aes(x = reorder(location_desc, n), y = n)) +
+  geom_col(fill = "#2c7fb8") +
+  coord_flip() +
+  labs(title = "Top 10 Locations of Shooting Incidents in NYC",
+       x = "Location Type",
+       y = "Number of Incidents") +
+  theme_minimal()
+```
+This chart reveals where shootings most often take place.
+These trends can reflect patterns in public safety, housing, 
+or neighborhood infrastructure and may help city agencies 
+prioritize patrols or interventions.
+
+
+```{r plot-hourly-shootings, message=FALSE, warning=FALSE}
+# Extract hour from time of day
+shootings_final <- shootings_final %>%
+  mutate(hour = hour(occur_time))  # lubridate::hour()
+
+# Plot number of incidents by hour (0–23)
+shootings_final %>%
+  count(hour) %>%
+  ggplot(aes(x = hour, y = n)) +
+  geom_line(color = "#d73027", size = 1.2) +
+  geom_point(color = "black", size = 2) +
+  scale_x_continuous(breaks = 0:23) +
+  labs(title = "Shooting Incidents by Hour of Day",
+       x = "Hour (24-Hour Format)",
+       y = "Number of Incidents") +
+  theme_minimal()
+```
+There is often see a sharp increase in the evening and night 
+(between 8 PM and 2 AM).
+Less incidents occur in the early morning (3–7 AM), when less people are active.
+
+
+
+Conclusion: 
+This analysis of the NYPD Shooting Incident Data highlighted key trends, 
+such as the peak of incidents occurring during late evening and night, 
+with most shootings taking place in public spaces like streets. 
+The findings emphasize the need for targeted interventions
+in high-risk areas and times.
+
+However, potential biases exist in the data, such as underreporting, 
+geographical discrepancies, and incomplete demographic information. 
+As the analyst, I recognize my personal biases shaped by societal 
+narratives and have mitigated them by focusing on data-driven 
+findings and maintaining objectivity throughout the process.
+
+Further research could expand this analysis to include socio-economic 
+factors and explore the impact of police presence, offering 
+deeper insights into the factors contributing to urban crime.
